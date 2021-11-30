@@ -106,11 +106,11 @@ ma_sin = np.sin(A['azimuth_moon_deg']*gdr)
 sa_cos = np.cos(A['azimuth_sun_deg']*gdr)
 sa_sin = np.sin(A['azimuth_sun_deg']*gdr)
 #%%
-t = (L['time']-L['time'][0])
-pyplot.plot(t[0:1000],tide['h'][0:1000],'r',label="data")
-pyplot.plot(t[0:1000],ma_cos[0:1000]*75,'b',label="distance_moon")
-pyplot.legend()
-pyplot.show()
+#t = (L['time']-L['time'][0])
+#pyplot.plot(t[0:1000],tide['h'][0:1000],'r',label="data")
+#pyplot.plot(t[0:1000],ma_cos[0:1000]*75,'b',label="distance_moon")
+#pyplot.legend()
+#pyplot.show()
 
 # %% Arrange data
 # FULL INPUT
@@ -143,7 +143,7 @@ reframed.shape
 # split into train and test sets
 nsamples=reframed.shape[0] #=14107
 values = reframed.values
-n_train_periods = int(nsamples*0.4) #percentage for training
+n_train_periods = int(nsamples*0.1) #percentage for training
 n_test_periods  = int(nsamples*0.1) #percentage for training
 train = values[:n_train_periods, :]
 test = values[n_train_periods:(n_test_periods+n_train_periods), :]
@@ -169,51 +169,55 @@ model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X
 model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
 # fit network
-history = model.fit(train_X, train_y, epochs=60, batch_size=72, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=10, batch_size=72, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
-pyplot.show()
+pyplot.savefig("./models/loss.png", dpi=150)
+
+# %% Save model 
+
+model.save('./models/')
 
 # %% Make a prediction
-yhat = model.predict(test_X)
-test_X0 = test_X.reshape((test_X.shape[0], n_steps_in*n_features))
-# invert scaling for forecast
-#inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
-inv_yhat = concatenate((test_X0,yhat), axis=1)
-inv_yhat = scaler.inverse_transform(inv_yhat[:,-(n_features+1):])
-inv_yhat = inv_yhat[:,-1]
-# invert scaling for actual
-test_y0 = test_y.reshape((len(test_y), 1))
-#inv_y = concatenate((test_y, test_X[:, -4:]), axis=1)
-inv_y = concatenate((test_X0,test_y0), axis=1)
-inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
-inv_y = inv_y[:,-1]
-# calculate RMSE
-rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
-print('Test RMSE: %.3f' % rmse)
-print('Test std: %.3f' % inv_y.std())
-
-#%%
-
-t = L['time'][:]-L['time'][0]
-
-pyplot.plot(inv_y, inv_yhat,'o')
-pyplot.xlabel("data")
-pyplot.ylabel("prediction")
-pyplot.grid()
-pyplot.axis([500,900,500,900])
-pyplot.axis("equal")
-pyplot.show()
-
-
-pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
-pyplot.plot(t[0:inv_y.size],inv_yhat,'b',label="prediction")
-pyplot.legend()
-pyplot.show()
-
-pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
-pyplot.plot(t[0:600],inv_yhat[0:600],'b',label="prediction")
-pyplot.legend()
-pyplot.show()
+#yhat = model.predict(test_X)
+#test_X0 = test_X.reshape((test_X.shape[0], n_steps_in*n_features))
+## invert scaling for forecast
+##inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
+#inv_yhat = concatenate((test_X0,yhat), axis=1)
+#inv_yhat = scaler.inverse_transform(inv_yhat[:,-(n_features+1):])
+#inv_yhat = inv_yhat[:,-1]
+## invert scaling for actual
+#test_y0 = test_y.reshape((len(test_y), 1))
+##inv_y = concatenate((test_y, test_X[:, -4:]), axis=1)
+#inv_y = concatenate((test_X0,test_y0), axis=1)
+#inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
+#inv_y = inv_y[:,-1]
+## calculate RMSE
+#rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
+#print('Test RMSE: %.3f' % rmse)
+#print('Test std: %.3f' % inv_y.std())
+#
+##%%
+#
+#t = L['time'][:]-L['time'][0]
+#
+#pyplot.plot(inv_y, inv_yhat,'o')
+#pyplot.xlabel("data")
+#pyplot.ylabel("prediction")
+#pyplot.grid()
+#pyplot.axis([500,900,500,900])
+#pyplot.axis("equal")
+#pyplot.show()
+#
+#
+#pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
+#pyplot.plot(t[0:inv_y.size],inv_yhat,'b',label="prediction")
+#pyplot.legend()
+#pyplot.show()
+#
+#pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
+#pyplot.plot(t[0:600],inv_yhat[0:600],'b',label="prediction")
+#pyplot.legend()
+#pyplot.show()
