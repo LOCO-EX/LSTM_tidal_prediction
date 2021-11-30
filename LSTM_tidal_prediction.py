@@ -181,43 +181,43 @@ pyplot.savefig("./models/loss.png", dpi=150)
 model.save('./models/')
 
 # %% Make a prediction
-#yhat = model.predict(test_X)
-#test_X0 = test_X.reshape((test_X.shape[0], n_steps_in*n_features))
-## invert scaling for forecast
-##inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
-#inv_yhat = concatenate((test_X0,yhat), axis=1)
-#inv_yhat = scaler.inverse_transform(inv_yhat[:,-(n_features+1):])
-#inv_yhat = inv_yhat[:,-1]
-## invert scaling for actual
-#test_y0 = test_y.reshape((len(test_y), 1))
-##inv_y = concatenate((test_y, test_X[:, -4:]), axis=1)
-#inv_y = concatenate((test_X0,test_y0), axis=1)
-#inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
-#inv_y = inv_y[:,-1]
-## calculate RMSE
-#rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
-#print('Test RMSE: %.3f' % rmse)
-#print('Test std: %.3f' % inv_y.std())
-#
-##%%
-#
-#t = L['time'][:]-L['time'][0]
-#
-#pyplot.plot(inv_y, inv_yhat,'o')
-#pyplot.xlabel("data")
-#pyplot.ylabel("prediction")
-#pyplot.grid()
-#pyplot.axis([500,900,500,900])
-#pyplot.axis("equal")
-#pyplot.show()
-#
-#
-#pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
-#pyplot.plot(t[0:inv_y.size],inv_yhat,'b',label="prediction")
-#pyplot.legend()
-#pyplot.show()
-#
-#pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
-#pyplot.plot(t[0:600],inv_yhat[0:600],'b',label="prediction")
-#pyplot.legend()
-#pyplot.show()
+yhat = model.predict(test_X)
+test_X0 = test_X.reshape((test_X.shape[0], n_steps_in*n_features))
+# invert scaling for forecast
+#inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
+inv_yhat = concatenate((test_X0,yhat), axis=1)
+inv_yhat = scaler.inverse_transform(inv_yhat[:,-(n_features+1):])
+inv_yhat = inv_yhat[:,-1]
+# invert scaling for actual
+test_y0 = test_y.reshape((len(test_y), 1))
+#inv_y = concatenate((test_y, test_X[:, -4:]), axis=1)
+inv_y = concatenate((test_X0,test_y0), axis=1)
+inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
+inv_y = inv_y[:,-1]
+# calculate RMSE
+rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
+print('Test RMSE: %.3f' % rmse)
+print('Test std: %.3f' % inv_y.std())
+
+#%%
+
+t = L['time'][:]-L['time'][0]
+
+pyplot.plot(inv_y, inv_yhat,'o')
+pyplot.xlabel("data")
+pyplot.ylabel("prediction")
+pyplot.grid()
+pyplot.axis([500,900,500,900])
+pyplot.axis("equal")
+pyplot.save('./models/comp1.png', dpi=150)
+
+
+pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
+pyplot.plot(t[0:inv_y.size],inv_yhat,'b',label="prediction")
+pyplot.legend()
+pyplot.save('./models/comp2.png', dpi=150)
+
+pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
+pyplot.plot(t[0:600],inv_yhat[0:600],'b',label="prediction")
+pyplot.legend()
+pyplot.save('./models/comp2.png', dpi=150)
