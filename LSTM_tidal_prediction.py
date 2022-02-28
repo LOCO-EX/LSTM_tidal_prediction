@@ -1,24 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat Nov 27 18:57:09 2021
+This script uses an LSTM network in keras to predict the tides (sea level) as a function of astronomical motions
 
-@author: matias
-"""
-"""
-Created on Mon Nov  8 11:49:03 2021
-
-I use the example given in
+It is based on an example given in
 https://machinelearningmastery.com/multivariate-time-series-forecasting-lstms-keras/
 
-To do a forecast of the daily-averaged sea level as a function of wind speed and direction, and tidal information.
-
-For the sea level we do a running mean of 24 hours 50 min every hour. For wind velocity and atmospheric pressure,
- we have hourly values
+For this script to work it is necessary to already have the time series of the relative postion of the Moon and the Sun. 
+This time series can be obtained by running the script
 
 
 
-@author: matias
+@author: Matias Duran-Matute (m.duran.matute@tue.nl)
 """
 from math import sqrt
 from numpy import concatenate
@@ -27,14 +20,15 @@ from pandas import read_csv
 from pandas import DataFrame
 from pandas import concat
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.preprocessing import LabelEncoder
+#from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import mean_squared_error
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import LSTM
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import LSTM
+from tensorflow.keras.optimizers import Adam
 import pandas as pd
 import numpy as np
-import utide
+import datetime
 
 
 # %% convert series to supervised learning
@@ -65,38 +59,24 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 
 # %% Load data
 # Load sea level data
-L = read_csv('data/level_tide.csv')
-
-
-#If you want to substitute L['tide'] by a specific reconstruction
-coef = utide.solve(L['time'], L['level'],
-                   lat=52, 
-                   method='ols',
-                   conf_int='MC')
-
-# %%
-#const =  ['M2', 'S2', 'M4', 'O1', 'SA', 'N2', 'MU2', 'K1', 'MS4', 'L2', 'M6',
-#         '2MS6', 'K2', 'NU2', 'MN4', 'Q1', 'P1', '2MN6', 'LDA2', 'M8', 'H1',
-#         'SSA', 'MK4', 'EPS2', 'MSN2', '2MK6', 'S1', '2MK5', 'MM', 'T2',
-#         '2SM6', '2N2', 'MKS2', 'MO3', 'MSK6', 'MSF', 'RHO1', 'SN4', '2Q1',
-#         'H2', 'M3', 'S4', 'SO1', 'OO1', 'TAU1', 'MK3', 'SK4', 'GAM2',
-#         'PSI1', 'J1', 'ETA2', 'SIG1', 'ALP1', 'PI1', 'SO3', 'BET1', '3MK7',
-#         'MSM', 'CHI1', 'MF', 'R2', 'NO1', 'PHI1', 'OQ2', 'SK3', 'THE1',
-#         'UPS1', '2SK5']
-
-# Only moon
-const = ['M2', 'N2', 'M4', 'O1', 'K2', 'MU2', 'K1', 'MN', 'L2']
-
-#const  = ['M2', 'M4', 'O1', 'K1', 'MN']
-
-# Most important
-#const = ['M2', 'S2', 'M4', 'O1', 'SA', 'N2', 'MU2', 'K1', 'MS4', 'L2', 'M6', '2MS6', 'K2']
-
-tide = utide.reconstruct(L['time'], coef, constit=const)
-#tide['h'] = L['tide']
+L = pd.read_csv('data/level_DH_10min.csv')
 # Load astronomic data
-A = pd.read_csv('data/astronomic.csv')
+A = pd.read_csv('data/astronomic_10min.csv')
+A = A[:-1]
 
+
+# %% 
+ti = datetime.datetime(1996,1,1,0,0)
+tf = datetime.datetime(1996,2,1,1,0)
+
+ti_d = ( ti - datetime.datetime(1970,1,1)).total_seconds()/86400.
+tf_d = ( tf - datetime.datetime(1970,1,1)).total_seconds()/86400.
+
+idi = (np.abs(L['time']-ti_d)).argmin()
+idf = (np.abs(L['time']-tf_d)).argmin()
+
+L = L[idi:idf]
+A = A[idi:idf]
 #%% Moon and sun azimuth into sine and cosine
 
 gdr = np.pi/180 # useful to transform from degrees to radians
@@ -105,21 +85,15 @@ ma_cos = np.cos(A['azimuth_moon_deg']*gdr)
 ma_sin = np.sin(A['azimuth_moon_deg']*gdr)
 sa_cos = np.cos(A['azimuth_sun_deg']*gdr)
 sa_sin = np.sin(A['azimuth_sun_deg']*gdr)
-#%%
-#t = (L['time']-L['time'][0])
-#pyplot.plot(t[0:1000],tide['h'][0:1000],'r',label="data")
-#pyplot.plot(t[0:1000],ma_cos[0:1000]*75,'b',label="distance_moon")
-#pyplot.legend()
-#pyplot.show()
 
 # %% Arrange data
-# FULL INPUT
-#tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin, A['altitude_sun_deg'], A['distance_sun_au'], sa_cos, sa_sin,tide['h']))
-#d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:], 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'altitude_sun_deg': tmp[4,:], 'distance_sun_au': tmp[5,:], 'azimuth_sun_cos': tmp[6,:], 'azimuth_sun_sin': tmp[7,:], 'level': tmp[8,:]}
+# FULL INPUT (three variables for each Moon and Sun position)
+tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin, A['altitude_sun_deg'], A['distance_sun_au'], sa_cos, sa_sin,L['level'][0:ma_cos.shape[0]]))
+d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:]**(-3), 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'altitude_sun_deg': tmp[4,:], 'distance_sun_au': tmp[5,:]**(-3), 'azimuth_sun_cos': tmp[6,:], 'azimuth_sun_sin': tmp[7,:], 'level': tmp[8,:]}
 
 # ONLY MOON
-tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin,tide['h']))
-d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:], 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'level': tmp[4,:]}
+#tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin,tide['h']))
+#in_pein_periods:(n_test_periods+n_train_periods)riods:(n_test_periods+n_train_periods)d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:], 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'level': #tmp[4,:]}
 
 dataset = pd.DataFrame(data=d)
 values = dataset.values
@@ -131,9 +105,9 @@ values = values.astype('float32')
 scaler = MinMaxScaler(feature_range=(0, 1))
 scaled = scaler.fit_transform(values)
 # frame as supervised learning
-n_steps_in = 96  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 192  #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
-n_features = 4 #number of features (variables) used to predict
+n_features = 8 #number of features (variables) used to predict
 
 # frame as supervised learning
 reframed = series_to_supervised(scaled, n_steps_in, n_steps_out, n_features)
@@ -143,8 +117,8 @@ reframed.shape
 # split into train and test sets
 nsamples=reframed.shape[0] #=14107
 values = reframed.values
-n_train_periods = int(nsamples*0.1) #percentage for training
-n_test_periods  = int(nsamples*0.1) #percentage for training
+n_train_periods = int(nsamples*0.7) #percentage for training
+n_test_periods  = int(nsamples*0.1) #percentage for testing
 train = values[:n_train_periods, :]
 test = values[n_train_periods:(n_test_periods+n_train_periods), :]
 # split into input and outputs (works only with n_steps_in=n_steps_out=1)
@@ -164,18 +138,23 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-#model.add(LSTM(12, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(LSTM(36, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(Dense(1))
+
+Adam(lr=0.0005)
+
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
+
 # fit network
-history = model.fit(train_X, train_y, epochs=10, batch_size=72, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=100, batch_size=48, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
 pyplot.savefig("./models/loss.png", dpi=150)
-
+pyplot.close()
 # %% Save model 
 
 model.save('./models/')
@@ -199,7 +178,7 @@ rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
 print('Test RMSE: %.3f' % rmse)
 print('Test std: %.3f' % inv_y.std())
 
-#%%
+# %% Comparison plots
 
 t = L['time'][:]-L['time'][0]
 
@@ -209,15 +188,62 @@ pyplot.ylabel("prediction")
 pyplot.grid()
 pyplot.axis([500,900,500,900])
 pyplot.axis("equal")
-pyplot.save('./models/comp1.png', dpi=150)
-
+pyplot.savefig('./models/comp1.png', dpi=150)
+pyplot.close()
 
 pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
-pyplot.plot(t[0:inv_y.size],inv_yhat,'b',label="prediction")
+pyplot.plot(t[0:inv_y.size],inv_yhat,'b:',label="prediction")
 pyplot.legend()
-pyplot.save('./models/comp2.png', dpi=150)
+pyplot.savefig('./models/comp2.png', dpi=150)
+pyplot.close()
 
 pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
-pyplot.plot(t[0:600],inv_yhat[0:600],'b',label="prediction")
+pyplot.plot(t[0:600],inv_yhat[0:600],'b:',label="prediction")
 pyplot.legend()
-pyplot.save('./models/comp2.png', dpi=150)
+pyplot.savefig('./models/comp3.png', dpi=150)
+pyplot.close()
+
+# %% Comparison ffts
+freq = np.fft.fftfreq(inv_y.size, d=t[1])[0:int(inv_y.size/4)]
+
+fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
+#fft_y = fft_y[0:int(inv_y.size/2)]
+fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
+
+pyplot.plot(freq,fft_yhat)
+pyplot.plot(freq,fft_y)
+pyplot.yscale('log')
+pyplot.savefig('./models/spectrum.png', dpi=150)
+pyplot.close()
+# %% Compare harmonic reconstruction to LSTM prediction
+
+
+# pyplot.plot(tide['h'][(n_steps_in+n_train_periods):(n_test_periods+n_steps_in++n_train_periods)], inv_yhat,'o')
+# pyplot.xlabel("harmonic")
+# pyplot.ylabel("prediction")
+# pyplot.grid()
+# pyplot.axis([500,900,500,900])
+# pyplot.axis("equal")
+# pyplot.savefig('./models/comp_ha_lstm_1.png', dpi=150)
+# pyplot.close()
+
+# pyplot.plot(t[0:1000],inv_y[0:1000],'r',label="data")
+# pyplot.plot(t[0:1000],inv_yhat[0:1000],'b:',label="prediction")
+# pyplot.plot(t[0:1000],tide['h'][(n_steps_in+n_train_periods):(1000+n_steps_in+n_train_periods)],label="harmonic")
+# pyplot.plot(t[0:1000],L['level'][(n_steps_in+n_train_periods):(1000+n_steps_in+n_train_periods)],':k',label="data2")
+# pyplot.legend()
+# pyplot.savefig('./models/comp_ha_lstm_2.png', dpi=150)
+# pyplot.close()
+
+# pyplot.plot(t[0:inv_y.size],inv_y-inv_yhat,'b:',label="prediction")
+# pyplot.plot(t[0:inv_y.size],L['level'][(n_steps_in+n_train_periods):(n_steps_in+n_test_periods+n_train_periods)]-tide['h'][(n_steps_in+n_train_periods):(n_steps_in+n_test_periods+n_train_periods)],label='harmonic')
+# pyplot.legend()
+# pyplot.savefig('./models/comp_ha_lstm_3.png', dpi=150)
+# pyplot.close()
+
+
+# pyplot.plot(t[0:1000],inv_y[0:1000]-inv_yhat[0:1000],'b:',label="prediction")
+# pyplot.plot(t[0:1000],L['level'][(n_steps_in+n_train_periods):(n_steps_in+n_train_periods+1000)]-tide['h'][(n_steps_in+n_train_periods):(n_steps_in+n_train_periods+1000)],label='harmonic')
+# pyplot.legend()
+# pyplot.savefig('./models/comp_ha_lstm_4.png', dpi=150)
+# pyplot.close()
