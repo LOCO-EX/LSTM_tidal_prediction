@@ -38,12 +38,14 @@ Created on Sat Feb 26 15:24:26 2022
 @author: Matias Duran-Matute (m.duran.matute@tue.nl)
 
 """
-
+#%%
 from skyfield.api import load
 from skyfield.api import N, S, W, E, wgs84
 import pandas as pd
 import numpy as np
+import matplotlib.dates as mdates
 
+#%%
 # General Definitions
 #======================
 
@@ -51,7 +53,7 @@ import numpy as np
 
 #input dates (should be in UTC)
 ts = load.timescale()
-t0=ts.utc(1996,1,1,1,0) #initial date: t0.tt = elapsed time in days since Julian date zero
+t0=ts.utc(1996,1,1,0,0) #initial date: t0.tt = elapsed time in days since Julian date zero
 t1=ts.utc(2016,1,1) #final date: t1.tt = elapsed time in days since Julian date zero
 dt=1/6 #time step in hours
 
@@ -59,7 +61,7 @@ dt=1/6 #time step in hours
 lat=52.96; lon=4.79 #Examples: Den Helder, The Netherlands)
 
 # =======================
-
+# %%
 #Load the JPL ephemeris DE421 (covers 1900-2050)---
 #An ephemeris from the JPL provides Sun, Moon, planets and Earth positions.
 eph = load('de421.bsp')
@@ -84,9 +86,12 @@ dtt=np.diff(times.tt)*24
 #check the first 2 and the last 2 times of the vector built with skynet:
 #there are 21 leap seconds from 1980-2015
 #but we still have the same time difference (elapsed time) when using for example numpy datetime64 (see below cell)
-#print(times[[0,1]].utc_strftime('%Y-%m-%d %H:%M:%S'))
-#print(times[[-2,-1]].utc_strftime('%Y-%m-%d %H:%M:%S'))
+print(times[[0,1]].utc_strftime('%Y-%m-%d %H:%M:%S'))
+print(times[[-2,-1]].utc_strftime('%Y-%m-%d %H:%M:%S'))
 
+
+
+#%%
 # 1) Moon
 #MOON----
 astro_moon = dws.at(times).observe(moon)
@@ -101,7 +106,7 @@ altitude_moon_deg=alt_moon.degrees
 #azimuth_moon_rad=alt_moon.radians
 azimuth_moon_deg=az_moon.degrees
 distance_moon_au = dist_moon.au
-
+#%%
 # 2) Sun
 
 astro_sun = dws.at(times).observe(sun)
@@ -122,8 +127,10 @@ distance_sun_au = dist_sun.au #AU units
 
 
 # Save data
+#%%
+t_num = mdates.date2num(times.utc_datetime())
 
-d = {'altitude_moon_deg': altitude_moon_deg, 'azimuth_moon_deg': azimuth_moon_deg, 'distance_moon_au':distance_moon_au,'altitude_sun_deg': altitude_sun_deg, 'azimuth_sun_deg': azimuth_sun_deg, 'distance_sun_au':distance_sun_au}
+d = {'time':t_num, 'altitude_moon_deg': altitude_moon_deg, 'azimuth_moon_deg': azimuth_moon_deg, 'distance_moon_au':distance_moon_au,'altitude_sun_deg': altitude_sun_deg, 'azimuth_sun_deg': azimuth_sun_deg, 'distance_sun_au':distance_sun_au}
 df = pd.DataFrame(data=d)
 
 df.to_csv('data/astronomic_10min.csv')
