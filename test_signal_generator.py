@@ -24,11 +24,9 @@ import utide
 L = pd.read_csv('data/level_DH_10min.csv')
 
 
-
-
 # %%
 
-#If you want to substitute L['tide'] by a specific reconstruction
+#Perform harmonic analysis
 coef = utide.solve(L['time'], L['level'],
                    lat=52.96, 
                    method='ols',
@@ -53,17 +51,19 @@ coef = utide.solve(L['time'], L['level'],
 
 #tide = utide.reconstruct(L['time'], coef, constit=const)
 
+# Perform reconstruction
 tide = utide.reconstruct(L['time'],coef)
 
-
+#Compute residual
 res = L['level'] - tide.h
 
-d = {'time': L['time'], 'tide': tide , 'residual': res}
+
+d = {'time': L['time'], 'tide': tide.h , 'residual': res}
 df = pd.DataFrame(data=d)
 
 #%% Compute a smooth version of the residual
 
-df['res_smooth'] = df['residual'].rolling(window = 240, center=True, min_periods=1).mean()
+df['res_smooth'] = df['residual'].rolling(window = 120, center=True, min_periods=1).mean()
  
 #%% Save signal to file
 df.to_csv('data/SL_DH_decomposed.csv')
