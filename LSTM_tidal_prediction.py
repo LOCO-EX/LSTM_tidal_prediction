@@ -59,15 +59,20 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 
 # %% Load data
 # Load sea level data
-L = pd.read_csv('data/level_DH_10min.csv')
+
+#L = pd.read_csv('data/level_DH_10min.csv')
+
+L = pd.read_csv('data/SL_DH_decomposed.csv')
+L["level"] = L["tide"][:]
+
 # Load astronomic data
 A = pd.read_csv('data/astronomic_10min.csv')
 A = A[:-1]
 
 
 # %% 
-ti = datetime.datetime(1996,1,1,0,0)
-tf = datetime.datetime(1996,2,1,1,0)
+ti = datetime.datetime(1996,1,1,0,0) #Starting date
+tf = datetime.datetime(1998,7,1,1,0) #End date
 
 ti_d = ( ti - datetime.datetime(1970,1,1)).total_seconds()/86400.
 tf_d = ( tf - datetime.datetime(1970,1,1)).total_seconds()/86400.
@@ -75,8 +80,11 @@ tf_d = ( tf - datetime.datetime(1970,1,1)).total_seconds()/86400.
 idi = (np.abs(L['time']-ti_d)).argmin()
 idf = (np.abs(L['time']-tf_d)).argmin()
 
-L = L[idi:idf]
-A = A[idi:idf]
+
+nt = 3 # This can be used to reduce temporal resolution (see following lines)
+
+L = L[idi:idf:nt]
+A = A[idi:idf:nt]
 #%% Moon and sun azimuth into sine and cosine
 
 gdr = np.pi/180 # useful to transform from degrees to radians
@@ -98,14 +106,20 @@ d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:]**(-3), 'azimuth
 dataset = pd.DataFrame(data=d)
 values = dataset.values
 
+nsamples=values.shape[0] #=14107
+n_train_periods = int(nsamples*0.7) #percentage for training
+n_test_periods  = int(nsamples*0.3) #percentage for testing
+
 # %%
 # ensure all data is float
 values = values.astype('float32')
 # normalize features
 scaler = MinMaxScaler(feature_range=(0, 1))
-scaled = scaler.fit_transform(values)
+sc_fit = scaler.fit(values[:n_train_periods,:])
+scaled = scaler.transform(values)
+
 # frame as supervised learning
-n_steps_in = 192  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 24  #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
 n_features = 8 #number of features (variables) used to predict
 
@@ -115,10 +129,9 @@ reframed.shape
 
 # %%
 # split into train and test sets
-nsamples=reframed.shape[0] #=14107
+
 values = reframed.values
-n_train_periods = int(nsamples*0.7) #percentage for training
-n_test_periods  = int(nsamples*0.1) #percentage for testing
+
 train = values[:n_train_periods, :]
 test = values[n_train_periods:(n_test_periods+n_train_periods), :]
 # split into input and outputs (works only with n_steps_in=n_steps_out=1)
@@ -138,17 +151,17 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-model.add(LSTM(36, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+model.add(LSTM(32, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
 #model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
 #model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
-Adam(lr=0.0005)
+Adam(lr=0.001)
 
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
 
 # fit network
-history = model.fit(train_X, train_y, epochs=100, batch_size=48, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=100, batch_size=24, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
@@ -180,7 +193,7 @@ print('Test std: %.3f' % inv_y.std())
 
 # %% Comparison plots
 
-t = L['time'][:]-L['time'][0]
+t = L['time']-L['time'][idi]
 
 pyplot.plot(inv_y, inv_yhat,'o')
 pyplot.xlabel("data")
@@ -204,7 +217,7 @@ pyplot.savefig('./models/comp3.png', dpi=150)
 pyplot.close()
 
 # %% Comparison ffts
-freq = np.fft.fftfreq(inv_y.size, d=t[1])[0:int(inv_y.size/4)]
+freq = np.fft.fftfreq(inv_y.size, d=t[idi+nt])[0:int(inv_y.size/4)]
 
 fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
 #fft_y = fft_y[0:int(inv_y.size/2)]
