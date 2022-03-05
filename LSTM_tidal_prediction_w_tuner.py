@@ -13,6 +13,7 @@ This time series can be obtained by running the script
 
 @author: Matias Duran-Matute (m.duran.matute@tue.nl)
 """
+#%%
 from math import sqrt
 from numpy import concatenate
 from matplotlib import pyplot
@@ -61,29 +62,31 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 #%% Define model with tuner
 
 class MyHyperModel(kt.HyperModel):
-
     def build(self, hp):
         model = Sequential()
         model.add(LSTM(units=hp.Int("units", min_value=24, max_value=64, step=8), input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
         model.add(Dense(1))
     
-        #learning_rate = hp.Float("lr", min_value=1e-4, max_value=1e-3, sampling="log")
-        learning_rate = 0.001
+        learning_rate = hp.Float("lr", min_value=1e-4, max_value=1e-3, sampling="log")
+        #learning_rate = 0.001
         Adam(lr=learning_rate)
     
-        model.compile(hp.Choice("loss", ["mse", "mae"]), optimizer='adam', metrics=["accuracy"]) #mean absolute error "mse" "mae"
-    
+        #model.compile(hp.Choice("loss", ["mse", "mae"]), optimizer="adam", metrics=["mse"]) #mean absolute error "mse" "mae"
+        model.compile(loss="mse", optimizer="adam", metrics=["mse"]) #mean absolute error "mse" "mae"
         return model
     
     def fit(self, hp, model, *args, **kwargs):
         return model.fit(
             *args,
-            batch_size=hp.Choice("batch_size", [32, 48]),
+            batch_size=hp.Choice("batch_size", [32, 48, 72, 96]),
+            #batch_size = 96
             **kwargs,
         )
 
 # %% Load data
 # Load sea level data
+
+p_name = "test_MM_nt2_2y_nin192"
 
 #L = pd.read_csv('data/level_DH_10min.csv')
 
@@ -174,17 +177,110 @@ test_X = test_X.reshape((test_X.shape[0], n_steps_in, n_features))
 print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 
 #%%
-tuner = kt.RandomSearch(
+tuner = kt.BayesianOptimization(
     MyHyperModel(),
-    objective="mse",
+    objective="val_mse",
     max_trials=3,
     executions_per_trial=2,
     overwrite=True,
     directory="./tuner",
-    project_name="LSTM_SL",
+    project_name=p_name,
 )
-tuner.search(train_X, train_y, epochs=2, validation_data=(test_X, test_y))
+tuner.search(train_X, train_y, epochs=120, validation_data=(test_X, test_y))
 #tuner.search(train_X, train_y, epochs=2, validation_data=(test_X, test_y), callbacks=[tf.keras.callbacks.EarlyStopping('val_loss', patience=10)])
 
 
 tuner.search_space_summary()
+
+#%% Determine optimal hyperparameters
+# Get the optimal hyperparameters
+best_hps=tuner.get_best_hyperparameters()[0]
+
+print(f"""
+The hyperparameter search is complete. The optimal number of units in the first densely-connected
+layer is {best_hps.get('units')} and the optimal learning rate for the optimizer
+is {best_hps.get('lr')}.
+""")
+
+#%% Find optimal epoch
+
+model = tuner.hypermodel.build(best_hps)
+history = model.fit(train_X, train_y, epochs=120, validation_data=(test_X, test_y))
+
+val_mse_per_epoch = history.history['val_mse']
+best_epoch = val_mse_per_epoch.index(min(val_mse_per_epoch)) + 1
+print('Best epoch: %d' % (best_epoch,))
+
+
+# Retrain the model
+history_b = model.fit(train_X, train_y, epochs=best_epoch, validation_data=(test_X, test_y))
+
+# plot history
+pyplot.plot(history_b.history['loss'], label='train')
+pyplot.plot(history_b.history['val_loss'], label='test')
+pyplot.legend()
+pyplot.savefig("./models/loss.png", dpi=150)
+pyplot.close()
+
+# %% Save model 
+
+#best_model = tuner.get_best_models(num_models=1)[0]
+best_model.save('./models/')
+
+
+# %% Make a prediction
+yhat = best_model.predict(test_X)
+test_X0 = test_X.reshape((test_X.shape[0], n_steps_in*n_features))
+# invert scaling for forecast
+#inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
+inv_yhat = concatenate((test_X0,yhat), axis=1)
+inv_yhat = scaler.inverse_transform(inv_yhat[:,-(n_features+1):])
+inv_yhat = inv_yhat[:,-1]
+# invert scaling for actual
+test_y0 = test_y.reshape((len(test_y), 1))
+#inv_y = concatenate((test_y, test_X[:, -4:]), axis=1)
+inv_y = concatenate((test_X0,test_y0), axis=1)
+inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
+inv_y = inv_y[:,-1]
+# calculate RMSE
+rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
+print('Test RMSE: %.3f' % rmse)
+print('Test std: %.3f' % inv_y.std())
+
+# %% Comparison plots
+
+t = L['time']-L['time'][idi]
+
+pyplot.plot(inv_y, inv_yhat,'o')
+pyplot.xlabel("data")
+pyplot.ylabel("prediction")
+pyplot.grid()
+pyplot.axis([500,900,500,900])
+pyplot.axis("equal")
+pyplot.savefig('./models/comp1.png', dpi=150)
+pyplot.close()
+
+pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
+pyplot.plot(t[0:inv_y.size],inv_yhat,'b:',label="prediction")
+pyplot.legend()
+pyplot.savefig('./models/comp2.png', dpi=150)
+pyplot.close()
+
+pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
+pyplot.plot(t[0:600],inv_yhat[0:600],'b:',label="prediction")
+pyplot.legend()
+pyplot.savefig('./models/comp3.png', dpi=150)
+pyplot.close()
+
+# %% Comparison ffts
+freq = np.fft.fftfreq(inv_y.size, d=t[idi+nt])[0:int(inv_y.size/4)]
+
+fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
+#fft_y = fft_y[0:int(inv_y.size/2)]
+fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
+
+pyplot.plot(freq,fft_yhat)
+pyplot.plot(freq,fft_y)
+pyplot.yscale('log')
+pyplot.savefig('./models/spectrum.png', dpi=150)
+pyplot.close()
