@@ -21,7 +21,7 @@ from pandas import read_csv
 from pandas import DataFrame
 from pandas import concat
 from sklearn.preprocessing import MinMaxScaler
-#from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
@@ -86,7 +86,7 @@ class MyHyperModel(kt.HyperModel):
 # %% Load data
 # Load sea level data
 
-p_name = "test_MM_nt2_2y_nin192"
+p_name = "test_SS_nt2_2y_nin192"
 
 #L = pd.read_csv('data/level_DH_10min.csv')
 
@@ -142,7 +142,8 @@ n_test_periods  = int(nsamples*0.3) #percentage for testing
 # ensure all data is float
 values = values.astype('float32')
 # normalize features
-scaler = MinMaxScaler(feature_range=(0, 1))
+#scaler = MinMaxScaler(feature_range=(0, 1))
+scaler = StandardScaler()
 sc_fit = scaler.fit(values[:n_train_periods,:])
 scaled = scaler.transform(values)
 
@@ -196,12 +197,6 @@ tuner.search_space_summary()
 # Get the optimal hyperparameters
 best_hps=tuner.get_best_hyperparameters()[0]
 
-print(f"""
-The hyperparameter search is complete. The optimal number of units in the first densely-connected
-layer is {best_hps.get('units')} and the optimal learning rate for the optimizer
-is {best_hps.get('lr')}.
-""")
-
 #%% Find optimal epoch
 
 model = tuner.hypermodel.build(best_hps)
@@ -225,11 +220,11 @@ pyplot.close()
 # %% Save model 
 
 #best_model = tuner.get_best_models(num_models=1)[0]
-best_model.save('./models/')
+model.save('./models/')
 
 
 # %% Make a prediction
-yhat = best_model.predict(test_X)
+yhat = model.predict(test_X)
 test_X0 = test_X.reshape((test_X.shape[0], n_steps_in*n_features))
 # invert scaling for forecast
 #inv_yhat = concatenate((yhat, test_X[:, -7:]), axis=1)
@@ -246,6 +241,14 @@ inv_y = inv_y[:,-1]
 rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
 print('Test RMSE: %.3f' % rmse)
 print('Test std: %.3f' % inv_y.std())
+
+tuner.search_space_summary()
+
+print(f"""
+The hyperparameter search is complete. The optimal number of units in the first densely-connected
+layer is {best_hps.get('units')} and the optimal learning rate for the optimizer
+is {best_hps.get('lr')}.
+""")
 
 # %% Comparison plots
 
