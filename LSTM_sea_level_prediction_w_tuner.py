@@ -63,12 +63,24 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 
 class MyHyperModel(kt.HyperModel):
     def build(self, hp):
+        #nl = 2
+        n_layers = 2 #hp.Int('n_layers', 1, nl)
+        
         model = Sequential()
-        model.add(LSTM(units=hp.Int("units", min_value=24, max_value=64, step=8), input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+        if n_layers == 1: 
+            model.add(LSTM(hp.Int('lstm_1_units',min_value=24,max_value=72,step=12),input_shape=(train_X.shape[1], train_X.shape[2])))
+        else:
+            model.add(LSTM(hp.Int('lstm_1_units',min_value=24,max_value=72,step=12),return_sequences=True,input_shape=(train_X.shape[1], train_X.shape[2])))
+            for i in range(2,n_layers + 1):
+                #print('layers')
+                #print(i)
+                model.add(LSTM(hp.Int(f'lstm_{i}_units', min_value=4, max_value=28, step=8), return_sequences=True)) #=(n_steps_in,n_features)
+        #for j in range(n_layers+1, nl+1):
+        #        void = hp.Int(f'lstm_{j}_units', min_value = 0, max_value = 0)
         model.add(Dense(1))
     
         #learning_rate = hp.Float("lr", min_value=1e-4, max_value=1e-3, sampling="log")
-        learning_rate = hp.Float("lr", min_value=1e-3, max_value=1e-3, sampling="log")
+        learning_rate = hp.Float("lr", min_value=5e-4, max_value=1e-3, sampling="log")
         Adam(lr=learning_rate)
     
         #model.compile(hp.Choice("loss", ["mse", "mae"]), optimizer="adam", metrics=["mse"]) #mean absolute error "mse" "mae"
@@ -190,18 +202,18 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 tuner = kt.BayesianOptimization(
     MyHyperModel(),
     objective="val_mse",
-    max_trials=3,
+    max_trials=10,
     executions_per_trial=2,
     overwrite=True,
     directory="./tuner",
     project_name=p_name,
 )
-tuner.search(train_X, train_y, epochs=120, validation_data=(test_X, test_y))
+tuner.search(train_X, train_y, epochs=2, validation_data=(test_X, test_y))
 #tuner.search(train_X, train_y, epochs=2, validation_data=(test_X, test_y), callbacks=[tf.keras.callbacks.EarlyStopping('val_loss', patience=10)])
 
 
 tuner.search_space_summary()
-
+tuner.results_summary()
 #%% Determine optimal hyperparameters
 # Get the optimal hyperparameters
 best_hps=tuner.get_best_hyperparameters()[0]
