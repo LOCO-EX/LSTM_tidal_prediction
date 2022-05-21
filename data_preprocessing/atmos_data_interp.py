@@ -24,7 +24,7 @@ import datetime
 #%% Load date
 
 
-W = pd.read_csv('../data/uerra_b_1h.csv')
+W = pd.read_csv('../data/uerra_1h_c.csv')
 
 
 
@@ -51,16 +51,16 @@ gdr = np.pi/180 # useful to transform from degrees to radians
 fs = interp1d(t,speed)
 fp = interp1d(t,press)
 fd = interp1d(t,np.cos(angle),kind='nearest')
-fpx = fp = interp1d(t,px)
-fpy = fp = interp1d(t,px)
+#fpx = fp = interp1d(t,px)
+#fpy = fp = interp1d(t,px)
 
 # Perform the interpolation
 t_i = np.arange(t[0],t[-1:],dt) # New time vector
 
 speed_i = fs(t_i)
 press_i = fp(t_i)
-px_i    = fpx(t_i)
-py_i    = fpy(t_i)
+#px_i    = fpx(t_i)
+#py_i    = fpy(t_i)
 
 
 c_angle_i = fd(t_i)
@@ -74,7 +74,7 @@ time = pd.to_datetime(t_i + W.time[0].timestamp()-3600, unit='s')
 
 # %%
 
-d = {'time': time, 'wind_speed': speed_i, 'sine_wind_angle': s_angle_i, 'cosine_wind_angle': c_angle_i, 'pressure': press_i, 'pressure_x_g': px_i, 'pressure_y_g': py_i}
+d = {'time': time, 'wind_speed': speed_i, 'sine_wind_angle': s_angle_i, 'cosine_wind_angle': c_angle_i, 'pressure': press_i}#, 'pressure_x_g': px_i, 'pressure_y_g': py_i}
 df = pd.DataFrame(data=d)
 
-df.to_csv('../data/uerra_b_10min.csv')
+df.to_csv('../data/uerra_10min_c.csv')
