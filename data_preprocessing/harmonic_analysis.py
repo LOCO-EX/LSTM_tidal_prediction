@@ -49,16 +49,8 @@ SL = pd.read_csv('../data/DenHeld.csv')
 
 tmp  = pd.to_datetime(SL.time, format='%Y-%m-%d %H:%M:%S')
 
-time = np.array((tmp - tmp.dt.floor('D')[0]).dt.total_seconds())/3600/24
+time = np.array((tmp - tmp.dt.floor('D')[0]).dt.total_seconds())/3600/24 #Input for utides must be in days
 level = np.array(SL.level)
-
-
-
-#SL = pd.read_csv('../../sea_level_ML/data/raw_data/SL_DH_data.csv')
-
-#time  = mdates.date2num(list(map(datenum_to_datetime,SL.datenum)))
-#level = np.array(SL.CorrectedSeaLevel[:])-694.6
-
 
 
 # %% Perform harmonic analysis
