@@ -27,8 +27,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-#%% Function to convert MATLAB's datenum to Python's datetime
 import datetime as dt
+#%% Function to convert MATLAB's datenum to Python's datetime
 
 
 def datenum_to_datetime(datenum):
@@ -45,10 +45,12 @@ def datenum_to_datetime(datenum):
 
 # %% Load Data
 
-SL = pd.read_csv('../sea_level_ML/data/raw_data/SL_DH_data.csv')
+SL = pd.read_csv('../data/DenHeld.csv')
 
-time  = mdates.date2num(list(map(datenum_to_datetime,SL.datenum)))
-level = np.array(SL.CorrectedSeaLevel[:])-694.6
+tmp  = pd.to_datetime(SL.time, format='%Y-%m-%d %H:%M:%S')
+
+time = np.array((tmp - tmp.dt.floor('D')[0]).dt.total_seconds())
+level = np.array(SL.level)
 
 
 # %% Perform harmonic analysis
@@ -57,7 +59,7 @@ level = np.array(SL.CorrectedSeaLevel[:])-694.6
 import utide
 
 
-coef = utide.solve(time, level,
+coef = utide.solve(SL.time, SL.level,
                    lat=52, 
                    method='ols',
                    conf_int='MC')
@@ -68,11 +70,11 @@ coef = utide.solve(time, level,
 tide = utide.reconstruct(time, coef)
 
 #%%
-d = {'time': time[::6], 'level': level[::6], 'tide': tide.h[::6]}
+d = {'time': SL.time[::6], 'level': level[::6], 'tide': tide.h[::6]}
 df = pd.DataFrame(data=d)
 
 
-df.to_csv('data/level_tide.csv')
+df.to_csv('../data/DenHeld_HA.csv')
 # %% Plot
 #t = obs.index.values  # dtype is '<M8[ns]' (numpy datetime64)
 # It is more efficient to supply the time directly as matplotlib
