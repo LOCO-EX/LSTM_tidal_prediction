@@ -14,7 +14,7 @@ Created on Tue Apr 12 08:57:02 2022
 
 import netCDF4 as nc
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import pandas as pd
 #%%
 input_folder = "/Users/matias/Atmosphere/"
@@ -22,11 +22,16 @@ input_folder = "/Users/matias/Atmosphere/"
 fr = "UERRA"
 
 years = range(1996,2016)
-nx = 18
-ny = 11
-#nx = 3
-#ny = 2
 
+#File a: Texel inlet
+#nx = 18 # lat = 52.8
+#ny = 10 # lon = 4.92
+#File b: Towards the channel
+#nx = 0
+#ny = 0
+#File c: northwest corner
+nx = 0
+ny = -1
 
 v = np.empty(0,dtype=float)
 a = np.empty(0,dtype=float)
@@ -46,7 +51,7 @@ for i in years:
 
 	
 	press = np.array(ds['slp'][1:-24,nx,ny])
-	pgrad = np.gradient(np.squeeze(np.array(ds['slp'][1:-24,(nx-2):(nx+3),(ny-2):(ny+3)])),axis = [1, 2])
+	#pgrad = np.gradient(np.squeeze(np.array(ds['slp'][1:-24,(nx-2):(nx+3),(ny-2):(ny+3)])),axis = [1, 2])
 	u10     = np.array(ds['u10'][1:-24,nx,ny])
 	v10     = np.array(ds['v10'][1:-24,nx,ny])
 	
@@ -54,14 +59,16 @@ for i in years:
 	p = np.append(p, press)
 	v = np.append(v, np.sqrt(u10**2 + v10**2))
 	a = np.append(a, np.arctan2(u10,v10))
-	px = np.append(px, pgrad[0][:,2,2])
-	py = np.append(py, pgrad[1][:,2,2])
+	#px = np.append(px, pgrad[0][:,2,2])
+	#py = np.append(py, pgrad[1][:,2,2])
 
 #%%
 
 #time = pd.DataFrame(dtime.data)
 
-d = {'time': t, 'wind_speed': v, 'wind_direction': a, 'pressure': p, 'pressure_x_g': px, 'pressure_y_g': py}
+#d = {'time': t, 'wind_speed': v, 'wind_direction': a, 'pressure': p, 'pressure_x_g': px, 'pressure_y_g': py}
+d = {'time': t, 'wind_speed': v, 'wind_direction': a, 'pressure': p}
+
 df = pd.DataFrame(data=d)
 
-df.to_csv('../data/uerra_1h.csv')
+df.to_csv('../data/uerra_1h_c.csv')
