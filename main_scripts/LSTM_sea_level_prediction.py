@@ -31,7 +31,7 @@ import keras_tuner as kt
 import pandas as pd
 import numpy as np
 import datetime
-
+from scipy.stats import pearsonr
 
 # %% convert series to supervised learning
 def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
@@ -60,65 +60,66 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 	return agg
 
 
+
 # %% Load data
-# Load sea level data
 
-p_name = "test_SL_0"
-
-# Load atmospheric data 
-W = pd.read_csv('data/Wind_data_10min.csv')
-
-#L = pd.read_csv('data/level_DH_10min.csv')
-
-L = pd.read_csv('data/level_DH_10min.csv')
-L["level"] = L["level"][:]
-
-# Load astronomic data
-A = pd.read_csv('data/astronomic_10min.csv')
-A = A[:-1]
-
-# %% 
-ti = datetime.datetime(1996,1,1,0,0) #Starting date
-tf = datetime.datetime(2001,1,1,1,0) #End date
-
-ti_d = ( ti - datetime.datetime(1970,1,1)).total_seconds()/86400.
-tf_d = ( tf - datetime.datetime(1970,1,1)).total_seconds()/86400.
-
-idi = (np.abs(L['time']-ti_d)).argmin()
-idf = (np.abs(L['time']-tf_d)).argmin()
+p_name = "SL_0"
 
 
-nt = 2 # This can be used to reduce temporal resolution (see following lines)
+in_folder = ('../data/')
 
-L = L[idi:idf:nt]
-A = A[idi:idf:nt]
-W = W[idi:idf:nt]
-#%% Moon and sun azimuth into sine and cosine
+# Load predictors 
+predictors = {"files": ['uerra_10min_a.csv','uerra_10min_b.csv','uerra_10min_c.csv','uerra_10min_d.csv'],
+              "keys": ['wind_speed', 'cosine_wind_angle', 'sine_wind_angle', 'pressure'],
+              }
 
-gdr = np.pi/180 # useful to transform from degrees to radians
 
-ma_cos = np.cos(A['azimuth_moon_deg']*gdr)
-ma_sin = np.sin(A['azimuth_moon_deg']*gdr)
-sa_cos = np.cos(A['azimuth_sun_deg']*gdr)
-sa_sin = np.sin(A['azimuth_sun_deg']*gdr)
+#Load sea level data
+L = pd.read_csv(in_folder+'DenHeld_HA.csv')
 
-# %% Arrange data
-# FULL INPUT (three variables for each Moon and Sun position)
-tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin, 
-                A['altitude_sun_deg'], A['distance_sun_au'], sa_cos, sa_sin, 
-                W['wind_speed'],W['sine_wind_angle'],W['cosine_wind_angle'],W['pressure'], 
-                L['level'][0:ma_cos.shape[0]]))
-d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:]**(-3), 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:],
-     'altitude_sun_deg': tmp[4,:], 'distance_sun_au': tmp[5,:]**(-3), 'azimuth_sun_cos': tmp[6,:], 'azimuth_sun_sin': tmp[7,:], 
-     'wind_speed': tmp[8,:], 'sin_wind_dir': tmp[9,:], 'cos_wind_dir': tmp[10,:], 'pressure': tmp[11,:],
-     'level': tmp[12,:]}
 
-# ONLY MOON
-#tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin,tide['h']))
-#in_pein_periods:(n_test_periods+n_train_periods)riods:(n_test_periods+n_train_periods)d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:], 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'level': #tmp[4,:]}
+#Load atmospheric data
+d_in = {}
 
-dataset = pd.DataFrame(data=d)
-values = dataset.values
+T = pd.read_csv(in_folder+predictors["files"][0],usecols=['time'])
+T['time']=pd.to_datetime(T['time'])
+for i in np.arange(0,np.size(predictors["files"])):
+    print(predictors["files"][i])
+    globals()['D%s' % i] = pd.read_csv(in_folder+predictors["files"][i],usecols=predictors["keys"])
+    globals()['D%s' % i] = globals()['D%s' % i].add_suffix('_'+str(i))
+    T = pd.concat([T,globals()['D%s' % i]],axis=1,join='inner')
+
+# Load astronomical data
+A = pd.read_csv(in_folder+'astronomic_10min.csv')
+A['time']=pd.to_datetime(A['time'])
+
+start_date = datetime.datetime(1996,1,1,0,0) #Starting date
+end_date = datetime.datetime(1998,1,1,0,0) #End date
+
+#indi = T.loc[start_date]
+indi = np.where(T.time > start_date)[0][0]
+indf = np.where(T.time <= end_date)[0][-1]
+nt = 6 # This can be used to reduce temporal resolution (see following lines)
+
+L = L[indi:indf:nt]
+T = T[indi:indf:nt]
+
+
+indi = np.where(A.time >= start_date)[0][0]
+indf = np.where(A.time < end_date)[0][-1]
+
+A = A[indi:indf:nt]
+
+A_keys = ['altitude_moon_deg','azimuth_moon_cos','azimuth_moon_sin', 'distance_moon_au',
+          'altitude_sun_deg','azimuth_sun_cos', 'azimuth_sun_sin', 'distance_sun_au']
+
+A = A[A_keys]          
+
+dataset = pd.concat([T,A],axis=1,join='inner')
+dataset = pd.concat([dataset,L['level']],axis=1,join='inner')
+# %%
+
+values = dataset.values[:,1:]
 
 nsamples=values.shape[0] #=14107
 n_train_periods = int(nsamples*0.7) #percentage for training
@@ -134,9 +135,9 @@ sc_fit = scaler.fit(values[:n_train_periods,:])
 scaled = scaler.transform(values)
 
 # frame as supervised learning
-n_steps_in = 144  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 48  #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
-n_features = 12 #number of features (variables) used to predict
+n_features = dataset.shape[1]-2 #number of features (variables) used to predict
 
 # frame as supervised learning
 reframed = series_to_supervised(scaled, n_steps_in, n_steps_out, n_features)
@@ -166,9 +167,9 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-#model.add(LSTM(72, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-model.add(LSTM(72, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-model.add(LSTM(28, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(LSTM(72,activation='relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(72, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(28, input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
 Adam(lr=0.0005)
@@ -181,34 +182,19 @@ history = model.fit(train_X, train_y, epochs=120, batch_size=32, validation_data
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
-pyplot.savefig("./models/loss.png", dpi=150)
+pyplot.savefig("../models/loss.png", dpi=150)
 pyplot.close()
 # %% Save model 
 
-model.save('./models/')
+model.save('../models/')
 #%% Find optimal epoch
-
-#val_mse_per_epoch = history.history['val_mse']
-#best_epoch = val_mse_per_epoch.index(min(val_mse_per_epoch)) + 1
-#print('Best epoch: %d' % (best_epoch,))
-
-
-# Retrain the model
-#model2 = tuner.hypermodel.build(best_hps)
-#history_b = model2.fit(train_X, train_y, epochs=best_epoch, validation_data=(test_X, test_y))
 
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
-pyplot.savefig("./models/loss.png", dpi=150)
+pyplot.savefig("../models/loss.png", dpi=150)
 pyplot.close()
-
-# %% Save model 
-
-#best_model = tuner.get_best_models(num_models=1)[0]
-#model2.save('./models/')
-
 
 # %% Make a prediction
 yhat = model.predict(test_X)
@@ -226,14 +212,16 @@ inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
 inv_y = inv_y[:,-1]
 # calculate RMSE
 rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
+corr, _ = pearsonr(inv_y, inv_yhat)
 print('Test RMSE: %.3f' % rmse)
+print('Test corr: %.3f' % corr)
 print('Test std: %.3f' % inv_y.std())
 
 
 
 # %% Comparison plots
 
-t = L['time']-L['time'][idi]
+t = T['time']-T['time'][indi]
 
 pyplot.plot(inv_y, inv_yhat,'o')
 pyplot.xlabel("data")
@@ -241,23 +229,26 @@ pyplot.ylabel("prediction")
 pyplot.grid()
 pyplot.axis([500,900,500,900])
 pyplot.axis("equal")
-pyplot.savefig('./models/comp1.png', dpi=150)
+pyplot.savefig('../models/comp1.png', dpi=150)
 pyplot.close()
 
 pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
 pyplot.plot(t[0:inv_y.size],inv_yhat,'b:',label="prediction")
 pyplot.legend()
-pyplot.savefig('./models/comp2.png', dpi=150)
+pyplot.savefig('../models/comp2.png', dpi=150)
 pyplot.close()
 
 pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
 pyplot.plot(t[0:600],inv_yhat[0:600],'b:',label="prediction")
 pyplot.legend()
-pyplot.savefig('./models/comp3.png', dpi=150)
+pyplot.savefig('../models/comp3.png', dpi=150)
 pyplot.close()
 
 # %% Comparison ffts
-freq = np.fft.fftfreq(inv_y.size, d=t[idi+nt])[0:int(inv_y.size/4)]
+
+t2 = t.dt.total_seconds()
+
+freq = np.fft.fftfreq(inv_y.size, d=t2[indi+nt])[0:int(inv_y.size/4)]
 
 fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
 #fft_y = fft_y[0:int(inv_y.size/2)]
@@ -265,6 +256,6 @@ fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
 
 pyplot.plot(freq,fft_yhat)
 pyplot.plot(freq,fft_y)
-pyplot.yscale('log')
-pyplot.savefig('./models/spectrum.png', dpi=150)
+#pyplot.yscale('log')
+pyplot.savefig('../models/spectrum.png', dpi=150)
 pyplot.close()
