@@ -53,9 +53,9 @@ import matplotlib.dates as mdates
 
 #input dates (should be in UTC)
 ts = load.timescale()
-t0=ts.utc(1996,1,1,0,0) #initial date: t0.tt = elapsed time in days since Julian date zero
-t1=ts.utc(2016,1,1) #final date: t1.tt = elapsed time in days since Julian date zero
-dt=1/6 #time step in hours
+t0=ts.tt(1996,1,1,0,0) #initial date: t0.tt = elapsed time in days since Julian date zero
+t1=ts.tt(2016,1,1,0,0) #final date: t1.tt = elapsed time in days since Julian date zero
+dt=10 #time step in minutes
 
 #Topocentric coordinates specific to your location on the Earth’s surface------
 lat=52.96; lon=4.79 #Examples: Den Helder, The Netherlands)
@@ -72,22 +72,23 @@ dws = earth + wgs84.latlon(lat*N,lon*E)
 #TT: terrestrial time, this uses relative time to a certain epoch (Julian date)
 #so, this is an uniform or absolute time scale, and better for skyfield computations because what only matters is the time difference.
 #When was Julian date zero?
-bc_4714 = -4713
-t = ts.tt(bc_4714, 11, 24, 12)
+#bc_4714 = -4713
+#t = ts.tt(bc_4714, 11, 24, 12)
 
 
 #Build a time vector from a UTC calendar----
 #there are 21 leap seconds lag when using skyfield utc
 
-times=ts.tt_jd(np.arange(t0.tt,t1.tt,dt/24)) #build times from a Terrestrial Time Julian date (elapsed time in days since Julian date zero)
+times = ts.tt(1996, 1, 1, 0, range(0,int((t1-t0)*24*60),dt))
+
 #check the diff of time is still 1h
 dtt=np.diff(times.tt)*24 
 #print(dtt.min(),dtt.max(),times.shape)
 #check the first 2 and the last 2 times of the vector built with skynet:
 #there are 21 leap seconds from 1980-2015
 #but we still have the same time difference (elapsed time) when using for example numpy datetime64 (see below cell)
-print(times[[0,1]].utc_strftime('%Y-%m-%d %H:%M:%S'))
-print(times[[-2,-1]].utc_strftime('%Y-%m-%d %H:%M:%S'))
+print(times[[0,1]].tt_strftime('%Y-%m-%d %H:%M:%S'))
+print(times[[-2,-1]].tt_strftime('%Y-%m-%d %H:%M:%S'))
 
 
 
@@ -128,9 +129,9 @@ distance_sun_au = dist_sun.au #AU units
 
 # Save data
 #%%
-t_num = mdates.date2num(times.utc_datetime())
+#t_num = mdates.date2num(times.utc_datetime())
 
-d = {'time':t_num, 'altitude_moon_deg': altitude_moon_deg, 'azimuth_moon_deg': azimuth_moon_deg, 'distance_moon_au':distance_moon_au,'altitude_sun_deg': altitude_sun_deg, 'azimuth_sun_deg': azimuth_sun_deg, 'distance_sun_au':distance_sun_au}
+d = {'time':times.tt_strftime('%Y-%m-%d %H:%M:%S'), 'altitude_moon_deg': altitude_moon_deg, 'azimuth_moon_deg': azimuth_moon_deg, 'distance_moon_au':distance_moon_au,'altitude_sun_deg': altitude_sun_deg, 'azimuth_sun_deg': azimuth_sun_deg, 'distance_sun_au':distance_sun_au}
 df = pd.DataFrame(data=d)
 
-df.to_csv('data/astronomic_10min.csv')
+df.to_csv('../data/astronomic_10min.csv')
