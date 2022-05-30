@@ -19,8 +19,9 @@ from matplotlib import pyplot
 from pandas import read_csv
 from pandas import DataFrame
 from pandas import concat
-from sklearn.preprocessing import MinMaxScaler
 #from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
@@ -30,6 +31,7 @@ import pandas as pd
 import numpy as np
 import datetime
 from scipy.stats import pearsonr
+from scipy import signal
 
 # %% convert series to supervised learning
 def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
@@ -57,8 +59,18 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 		agg.dropna(inplace=True)
 	return agg
 
+# %% Define custom loss function
+
+import tensorflow as tf
+
+def custom_loss(y_true, y_pred):
+    squared_difference = tf.square(y_true - y_pred)
+    loss = tf.exp(tf.abs(y_true)/500)*squared_difference
+    return tf.reduce_mean(loss, axis=-1)
+
+
 # %%
-p_name = "tides_0"
+p_name = "tides_11"
 
 
 in_folder = ('../data/')
@@ -72,13 +84,12 @@ A = pd.read_csv(in_folder+'astronomic_10min.csv')
 A['time']=pd.to_datetime(A['time'])
 
 start_date = datetime.datetime(1996,1,1,0,0) #Starting date
-end_date = datetime.datetime(1998,1,1,0,0) #End date
+end_date = datetime.datetime(2002,1,1,0,0) #End date
 
 #indi = T.loc[start_date]
 indi = np.where(L.time >= start_date)[0][0]
 indf = np.where(L.time < end_date)[0][-1]
 nt = 6 # This can be used to reduce temporal resolution (see following lines)
-
 L = L[indi:indf:nt]
 
 
@@ -87,26 +98,32 @@ indf = np.where(A.time < end_date)[0][-1]
 
 A = A[indi:indf:nt]
 
+A['distance_moon_au']=A['distance_moon_au']**(-3)
+A['distance_sun_au']=A['distance_sun_au']**(-3)
+
 A_keys = ['time','altitude_moon_deg','azimuth_moon_cos','azimuth_moon_sin', 'distance_moon_au',
           'altitude_sun_deg','azimuth_sun_cos', 'azimuth_sun_sin', 'distance_sun_au']         
+
+tmp=signal.detrend(L['tide'])
 
 dataset = pd.concat([A[A_keys],L['tide']],axis=1,join='inner')
 values = dataset.values[:,1:]
 
 nsamples=values.shape[0] #=14107
-n_train_periods = int(nsamples*0.7) #percentage for training
-n_test_periods  = int(nsamples*0.3) #percentage for testing
+n_train_periods = int(nsamples*0.8) #percentage for training
+n_test_periods  = int(nsamples*0.2) #percentage for testing
 
 # %%
 # ensure all data is float
 values = values.astype('float32')
 # normalize features
 scaler = MinMaxScaler(feature_range=(0, 1))
+#scaler = StandardScaler()
 sc_fit = scaler.fit(values[:n_train_periods,:])
 scaled = scaler.transform(values)
 
 # frame as supervised learning
-n_steps_in = 48  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 96  #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
 n_features = dataset.shape[1]-2 #number of features (variables) used to predict
 
@@ -138,9 +155,9 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-model.add(LSTM(48, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(LSTM(48, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(48, activation = 'relu', return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(16, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
 Adam(lr=0.001)
@@ -148,7 +165,7 @@ Adam(lr=0.001)
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
 
 # fit network
-history = model.fit(train_X, train_y, epochs=120, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=200, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
@@ -215,7 +232,7 @@ fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
 fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
 
 pyplot.plot(freq,fft_yhat)
-pyplot.plot(freq,fft_y)
+pyplot.plot(freq,fft_y,':')
 pyplot.yscale('log')
 pyplot.savefig('../models/spectrum.png', dpi=150)
 pyplot.close()
