@@ -19,8 +19,9 @@ from matplotlib import pyplot
 from pandas import read_csv
 from pandas import DataFrame
 from pandas import concat
-from sklearn.preprocessing import MinMaxScaler
 #from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
@@ -29,7 +30,8 @@ from tensorflow.keras.optimizers import Adam
 import pandas as pd
 import numpy as np
 import datetime
-
+from scipy.stats import pearsonr
+from scipy import signal
 
 # %% convert series to supervised learning
 def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
@@ -57,71 +59,73 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 		agg.dropna(inplace=True)
 	return agg
 
-# %% Load data
-# Load sea level data
+# %% Define custom loss function
 
-#L = pd.read_csv('data/level_DH_10min.csv')
+import tensorflow as tf
 
-L = pd.read_csv('data/SL_DH_decomposed.csv')
-L["level"] = L["tide"][:]
-
-# Load astronomic data
-A = pd.read_csv('data/astronomic_10min.csv')
-A = A[:-1]
+def custom_loss(y_true, y_pred):
+    squared_difference = tf.square(y_true - y_pred)
+    loss = tf.exp(tf.abs(y_true)/500)*squared_difference
+    return tf.reduce_mean(loss, axis=-1)
 
 
-# %% 
-ti = datetime.datetime(1996,1,1,0,0) #Starting date
-tf = datetime.datetime(1998,7,1,1,0) #End date
-
-ti_d = ( ti - datetime.datetime(1970,1,1)).total_seconds()/86400.
-tf_d = ( tf - datetime.datetime(1970,1,1)).total_seconds()/86400.
-
-idi = (np.abs(L['time']-ti_d)).argmin()
-idf = (np.abs(L['time']-tf_d)).argmin()
+# %%
+p_name = "tides_11"
 
 
-nt = 3 # This can be used to reduce temporal resolution (see following lines)
+in_folder = ('../data/')
 
-L = L[idi:idf:nt]
-A = A[idi:idf:nt]
-#%% Moon and sun azimuth into sine and cosine
+#Load sea level data
+L = pd.read_csv(in_folder+'DenHeld_HA.csv')
+L['time']=pd.to_datetime(L['time'])
 
-gdr = np.pi/180 # useful to transform from degrees to radians
+# Load astronomical data
+A = pd.read_csv(in_folder+'astronomic_10min.csv')
+A['time']=pd.to_datetime(A['time'])
 
-ma_cos = np.cos(A['azimuth_moon_deg']*gdr)
-ma_sin = np.sin(A['azimuth_moon_deg']*gdr)
-sa_cos = np.cos(A['azimuth_sun_deg']*gdr)
-sa_sin = np.sin(A['azimuth_sun_deg']*gdr)
+start_date = datetime.datetime(1996,1,1,0,0) #Starting date
+end_date = datetime.datetime(2002,1,1,0,0) #End date
 
-# %% Arrange data
-# FULL INPUT (three variables for each Moon and Sun position)
-tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin, A['altitude_sun_deg'], A['distance_sun_au'], sa_cos, sa_sin,L['level'][0:ma_cos.shape[0]]))
-d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:]**(-3), 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'altitude_sun_deg': tmp[4,:], 'distance_sun_au': tmp[5,:]**(-3), 'azimuth_sun_cos': tmp[6,:], 'azimuth_sun_sin': tmp[7,:], 'level': tmp[8,:]}
+#indi = T.loc[start_date]
+indi = np.where(L.time >= start_date)[0][0]
+indf = np.where(L.time < end_date)[0][-1]
+nt = 6 # This can be used to reduce temporal resolution (see following lines)
+L = L[indi:indf:nt]
 
-# ONLY MOON
-#tmp = np.stack((A['altitude_moon_deg'], A['distance_moon_au'], ma_cos, ma_sin,tide['h']))
-#in_pein_periods:(n_test_periods+n_train_periods)riods:(n_test_periods+n_train_periods)d = {'altitude_moon_deg': tmp[0,:], 'distance_moon_au': tmp[1,:], 'azimuth_moon_cos': tmp[2,:], 'azimuth_moon_sin': tmp[3,:], 'level': #tmp[4,:]}
 
-dataset = pd.DataFrame(data=d)
-values = dataset.values
+indi = np.where(A.time >= start_date)[0][0]
+indf = np.where(A.time < end_date)[0][-1]
+
+A = A[indi:indf:nt]
+
+A['distance_moon_au']=A['distance_moon_au']**(-3)
+A['distance_sun_au']=A['distance_sun_au']**(-3)
+
+A_keys = ['time','altitude_moon_deg','azimuth_moon_cos','azimuth_moon_sin', 'distance_moon_au',
+          'altitude_sun_deg','azimuth_sun_cos', 'azimuth_sun_sin', 'distance_sun_au']         
+
+tmp=signal.detrend(L['tide'])
+
+dataset = pd.concat([A[A_keys],L['tide']],axis=1,join='inner')
+values = dataset.values[:,1:]
 
 nsamples=values.shape[0] #=14107
-n_train_periods = int(nsamples*0.7) #percentage for training
-n_test_periods  = int(nsamples*0.3) #percentage for testing
+n_train_periods = int(nsamples*0.8) #percentage for training
+n_test_periods  = int(nsamples*0.2) #percentage for testing
 
 # %%
 # ensure all data is float
 values = values.astype('float32')
 # normalize features
 scaler = MinMaxScaler(feature_range=(0, 1))
+#scaler = StandardScaler()
 sc_fit = scaler.fit(values[:n_train_periods,:])
 scaled = scaler.transform(values)
 
 # frame as supervised learning
-n_steps_in = 24  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 96  #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
-n_features = 8 #number of features (variables) used to predict
+n_features = dataset.shape[1]-2 #number of features (variables) used to predict
 
 # frame as supervised learning
 reframed = series_to_supervised(scaled, n_steps_in, n_steps_out, n_features)
@@ -151,9 +155,9 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-model.add(LSTM(32, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(LSTM(48, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(48, activation = 'relu', return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(16, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
 Adam(lr=0.001)
@@ -161,16 +165,16 @@ Adam(lr=0.001)
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
 
 # fit network
-history = model.fit(train_X, train_y, epochs=100, batch_size=24, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=200, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
-pyplot.savefig("./models/loss.png", dpi=150)
+pyplot.savefig("../models/loss.png", dpi=150)
 pyplot.close()
 # %% Save model 
 
-model.save('./models/')
+model.save('../models/')
 
 # %% Make a prediction
 yhat = model.predict(test_X)
@@ -188,45 +192,49 @@ inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
 inv_y = inv_y[:,-1]
 # calculate RMSE
 rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
+corr, _ = pearsonr(inv_y, inv_yhat)
 print('Test RMSE: %.3f' % rmse)
+print('Test corr: %.3f' % corr)
 print('Test std: %.3f' % inv_y.std())
 
 # %% Comparison plots
 
-t = L['time']-L['time'][idi]
+t = L['time']-L['time'][indi]
 
 pyplot.plot(inv_y, inv_yhat,'o')
+pyplot.plot([-150, 100],[-150, 100],'r')
 pyplot.xlabel("data")
 pyplot.ylabel("prediction")
 pyplot.grid()
 pyplot.axis([500,900,500,900])
 pyplot.axis("equal")
-pyplot.savefig('./models/comp1.png', dpi=150)
+pyplot.savefig('../models/comp1.png', dpi=150)
 pyplot.close()
 
 pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
 pyplot.plot(t[0:inv_y.size],inv_yhat,'b:',label="prediction")
 pyplot.legend()
-pyplot.savefig('./models/comp2.png', dpi=150)
+pyplot.savefig('../models/comp2.png', dpi=150)
 pyplot.close()
 
-pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
-pyplot.plot(t[0:600],inv_yhat[0:600],'b:',label="prediction")
+pyplot.plot(t[-1000:],inv_y[-1000:],'r',label="data")
+pyplot.plot(t[-1000:],inv_yhat[-1000:],'b:',label="prediction")
 pyplot.legend()
-pyplot.savefig('./models/comp3.png', dpi=150)
+pyplot.savefig('../models/comp3.png', dpi=150)
 pyplot.close()
 
 # %% Comparison ffts
-freq = np.fft.fftfreq(inv_y.size, d=t[idi+nt])[0:int(inv_y.size/4)]
+t2 = t.dt.total_seconds()
+freq = np.fft.fftfreq(inv_y.size, d=t2[indi+nt])[0:int(inv_y.size/4)]
 
 fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
 #fft_y = fft_y[0:int(inv_y.size/2)]
 fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
 
 pyplot.plot(freq,fft_yhat)
-pyplot.plot(freq,fft_y)
+pyplot.plot(freq,fft_y,':')
 pyplot.yscale('log')
-pyplot.savefig('./models/spectrum.png', dpi=150)
+pyplot.savefig('../models/spectrum.png', dpi=150)
 pyplot.close()
 # %% Compare harmonic reconstruction to LSTM prediction
 
