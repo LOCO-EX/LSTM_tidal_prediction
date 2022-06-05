@@ -32,7 +32,7 @@ import pandas as pd
 import numpy as np
 import datetime
 from scipy.stats import pearsonr
-
+from pickle import dump
 # %% convert series to supervised learning
 def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 	n_vars = 1 if type(data) is list else data.shape[1]
@@ -63,14 +63,14 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 
 # %% Load data
 
-p_name = "SL_0"
+p_name = "SL_4"
 
 
 in_folder = ('../data/')
 
 # Load predictors 
-predictors = {"files": ['uerra_10min_a.csv','uerra_10min_b.csv','uerra_10min_c.csv','uerra_10min_d.csv'],
-              "keys": ['wind_speed', 'cosine_wind_angle', 'sine_wind_angle', 'pressure'],
+predictors = {"files": ['uerra_10min_dim_a.csv','uerra_10min_dim_b.csv','uerra_10min_dim_c.csv','uerra_10min_dim_d.csv'],
+              "keys": ['wind_speed_squared', 'uU', 'vU', 'pressure'],
               }
 
 
@@ -94,7 +94,7 @@ A = pd.read_csv(in_folder+'astronomic_10min.csv')
 A['time']=pd.to_datetime(A['time'])
 
 start_date = datetime.datetime(1996,1,1,0,0) #Starting date
-end_date = datetime.datetime(1998,1,1,0,0) #End date
+end_date = datetime.datetime(2002,1,1,0,0) #End date
 
 #indi = T.loc[start_date]
 indi = np.where(T.time > start_date)[0][0]
@@ -110,6 +110,9 @@ indf = np.where(A.time < end_date)[0][-1]
 
 A = A[indi:indf:nt]
 
+#A['distance_moon_au']=A['distance_moon_au']**(-3)
+#A['distance_sun_au']=A['distance_sun_au']**(-3)
+
 A_keys = ['altitude_moon_deg','azimuth_moon_cos','azimuth_moon_sin', 'distance_moon_au',
           'altitude_sun_deg','azimuth_sun_cos', 'azimuth_sun_sin', 'distance_sun_au']
 
@@ -122,8 +125,8 @@ dataset = pd.concat([dataset,L['level']],axis=1,join='inner')
 values = dataset.values[:,1:]
 
 nsamples=values.shape[0] #=14107
-n_train_periods = int(nsamples*0.7) #percentage for training
-n_test_periods  = int(nsamples*0.3) #percentage for testing
+n_train_periods = int(nsamples*0.8) #percentage for training
+n_test_periods  = int(nsamples*0.2) #percentage for testing
 
 # %%
 # ensure all data is float
@@ -142,6 +145,9 @@ n_features = dataset.shape[1]-2 #number of features (variables) used to predict
 # frame as supervised learning
 reframed = series_to_supervised(scaled, n_steps_in, n_steps_out, n_features)
 reframed.shape
+
+# save scaler
+dump(scaler, open('../models/scaler.pkl', 'wb'))
 
 # %%
 # split into train and test sets
@@ -168,16 +174,16 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 # design network
 model = Sequential()
 model.add(LSTM(72,activation='relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(72, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(28, input_shape=(train_X.shape[1], train_X.shape[2])))
+#model.add(LSTM(48, activation='relu', return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(12, activation='relu', input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
-Adam(lr=0.0005)
+Adam(lr=0.001)
 
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
 
 # fit network
-history = model.fit(train_X, train_y, epochs=120, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=71, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
@@ -224,6 +230,7 @@ print('Test std: %.3f' % inv_y.std())
 t = T['time']-T['time'][indi]
 
 pyplot.plot(inv_y, inv_yhat,'o')
+pyplot.plot([-250, 200],[-250, 200],'r')
 pyplot.xlabel("data")
 pyplot.ylabel("prediction")
 pyplot.grid()

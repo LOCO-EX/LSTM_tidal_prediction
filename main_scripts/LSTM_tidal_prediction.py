@@ -32,7 +32,7 @@ import numpy as np
 import datetime
 from scipy.stats import pearsonr
 from scipy import signal
-
+from pickle import dump
 # %% convert series to supervised learning
 def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 	n_vars = 1 if type(data) is list else data.shape[1]
@@ -80,7 +80,7 @@ L = pd.read_csv(in_folder+'DenHeld_HA.csv')
 L['time']=pd.to_datetime(L['time'])
 
 # Load astronomical data
-A = pd.read_csv(in_folder+'astronomic_10min.csv')
+A = pd.read_csv(in_folder+'astronomic_10min_dim.csv')
 A['time']=pd.to_datetime(A['time'])
 
 start_date = datetime.datetime(1996,1,1,0,0) #Starting date
@@ -89,7 +89,7 @@ end_date = datetime.datetime(2002,1,1,0,0) #End date
 #indi = T.loc[start_date]
 indi = np.where(L.time >= start_date)[0][0]
 indf = np.where(L.time < end_date)[0][-1]
-nt = 6 # This can be used to reduce temporal resolution (see following lines)
+nt = 3 # This can be used to reduce temporal resolution (see following lines)
 L = L[indi:indf:nt]
 
 
@@ -97,12 +97,30 @@ indi = np.where(A.time >= start_date)[0][0]
 indf = np.where(A.time < end_date)[0][-1]
 
 A = A[indi:indf:nt]
+#%%
+#A['distance_moon_au']=A['distance_moon_au']**(-3)
+#A['distance_sun_au']=A['distance_sun_au']**(-3)
+#A_keys = ['time','altitude_moon_deg','azimuth_moon_cos','azimuth_moon_sin', 'distance_moon_au',
+#          'altitude_sun_deg','azimuth_sun_cos', 'azimuth_sun_sin', 'distance_sun_au']         
 
-A['distance_moon_au']=A['distance_moon_au']**(-3)
-A['distance_sun_au']=A['distance_sun_au']**(-3)
+A_keys = ['time', 
+       'altitude_moon_sin', 'altitude_moon_cos',
+       'azimuth_moon_cos', 'azimuth2_moon_cos', 
+       'distance_moon_m1','distance_moon_m3',
+       'altitude_sun_sin', 'altitude_sun_cos',
+       'azimuth_sun_cos', 'azimuth2_sun_cos', 
+       'distance_sun_m1', 'distance_sun_m3',
+       'distance_sun_SA', 'MSF', 'MF',
+       'altitude_moon_sin2', 'altitude_moon_cos2', 'azimuth_moon_cos2', 
+       'altitude_sun_sin2', 'altitude_sun_cos2', 'azimuth_sun_cos2', 
+       ]  
 
-A_keys = ['time','altitude_moon_deg','azimuth_moon_cos','azimuth_moon_sin', 'distance_moon_au',
-          'altitude_sun_deg','azimuth_sun_cos', 'azimuth_sun_sin', 'distance_sun_au']         
+#A_keys = ['time',
+#          'altitude_moon_sin_d3','altitude_moon_cos_d3','azimuth_moon_cos_d3','azimuth_moon_cos2_d3', 'distance_moon_d3',
+#          'altitude_sun_sin_d3','altitude_sun_cos_d3','azimuth_sun_cos_d3', 'azimuth_sun_cos2_d3', 'distance_sun_d3']  
+
+#A_keys = ['time', 'M2', 'S2', 'SA', 'O1', 'N2', 'MU2', 'K1', 'MS4',
+#       'L2', '2MS6', 'K2', 'NU2', 'MN4']
 
 tmp=signal.detrend(L['tide'])
 
@@ -110,8 +128,8 @@ dataset = pd.concat([A[A_keys],L['tide']],axis=1,join='inner')
 values = dataset.values[:,1:]
 
 nsamples=values.shape[0] #=14107
-n_train_periods = int(nsamples*0.8) #percentage for training
-n_test_periods  = int(nsamples*0.2) #percentage for testing
+n_train_periods = int(nsamples*0.7) #percentage for training
+n_test_periods  = int(nsamples*0.3) #percentage for testing
 
 # %%
 # ensure all data is float
@@ -123,13 +141,16 @@ sc_fit = scaler.fit(values[:n_train_periods,:])
 scaled = scaler.transform(values)
 
 # frame as supervised learning
-n_steps_in = 96  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 144  #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
 n_features = dataset.shape[1]-2 #number of features (variables) used to predict
 
 # frame as supervised learning
 reframed = series_to_supervised(scaled, n_steps_in, n_steps_out, n_features)
 reframed.shape
+
+# save scaler
+dump(scaler, open('../models/scaler.pkl', 'wb'))
 
 # %%
 # split into train and test sets
@@ -155,9 +176,10 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-model.add(LSTM(48, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(48, activation = 'relu', return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-#model.add(LSTM(16, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2])))
+#model.add(LSTM(48, activation = 'relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+model.add(LSTM(24, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+model.add(LSTM(12, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(LSTM(4, input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
 Adam(lr=0.001)
@@ -165,7 +187,7 @@ Adam(lr=0.001)
 model.compile(loss='mse', optimizer='adam') #mean absolute error "mse" "mae"
 
 # fit network
-history = model.fit(train_X, train_y, epochs=200, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
+history = model.fit(train_X, train_y, epochs=120, batch_size=32, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 # plot history
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
@@ -231,11 +253,21 @@ fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
 #fft_y = fft_y[0:int(inv_y.size/2)]
 fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
 
-pyplot.plot(freq,fft_yhat)
-pyplot.plot(freq,fft_y,':')
+
+pyplot.plot(3600*freq,fft_yhat)
+pyplot.plot(3600*freq,fft_y,':')
+# pyplot.plot(3600*freq[1700:2100],fft_yhat[1700:2100])
+# pyplot.plot(3600*freq[1700:2100],fft_y[1700:2100],':')
+# pyplot.plot([1.19242054e-01, 1.19242054e-01], [1, 10**3],'r')
+# pyplot.plot([2.28159033e-04, 2.28159033e-04], [1, 10**5],'r')
+# pyplot.plot([1.51215085e-03, 1.51215085e-03], [1, 10**5],'r')
 pyplot.yscale('log')
+
 pyplot.savefig('../models/spectrum.png', dpi=150)
 pyplot.close()
+
+
+pyplot.plot(freq,fft_yhat-fft_y)
 # %% Compare harmonic reconstruction to LSTM prediction
 
 

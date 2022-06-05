@@ -31,8 +31,8 @@ import keras_tuner as kt
 import pandas as pd
 import numpy as np
 import datetime
-
-
+from scipy.stats import pearsonr
+from pickle import dump
 # %% convert series to supervised learning
 def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 	n_vars = 1 if type(data) is list else data.shape[1]
@@ -60,21 +60,37 @@ def series_to_supervised(data, n_in=1, n_out=1, n_f=1, dropnan=True):
 	return agg
 
 
-# %% 
+# %% Define custom loss function
+
+import tensorflow as tf
+
+def custom_loss(y_true, y_pred):
+    squared_difference = tf.square(y_true - y_pred)
+    loss = tf.exp(tf.abs(y_true)/100)*squared_difference
+    return tf.reduce_mean(loss, axis=-1)
+
 
 
 # %% Load data
 # Load sea level data
 
-p_name = "test_RES_0"
+p_name = "test_RES_19"
 
 
 in_folder = ('../data/')
 
 # Load predictors 
-predictors = {"files": ['uerra_10min_a.csv', 'uerra_10min_b.csv'],
-              "keys": ['wind_speed', 'cosine_wind_angle', 'sine_wind_angle', 'pressure'],
+#predictors = {"files": ['uerra_10min_a.csv','uerra_10min_b.csv','uerra_10min_c.csv','uerra_10min_d.csv', 'uerra_10min_e.csv'],
+#              "keys": ['wind_speed', 'cosine_wind_angle', 'sine_wind_angle', 'pressure'],
+#              }
+
+predictors = {"files": ['uerra_10min_dim_a.csv','uerra_10min_dim_b.csv','uerra_10min_dim_c.csv','uerra_10min_dim_d.csv'],
+              "keys": [ 'uU', 'vU', 'pressure'],
               }
+
+#predictors = {"files": ['uerra_10min_dim2_a.csv','uerra_10min_dim2_b.csv','uerra_10min_dim2_c.csv','uerra_10min_dim2_d.csv'],
+#              "keys": ['U3', 'u3', 'v3', 'pressure'],
+#              }
 
 L = pd.read_csv('../data/DenHeld_HA.csv')
 
@@ -93,7 +109,7 @@ for i in np.arange(0,np.size(predictors["files"])):
 
 L['residual']=L['level']-L['tide']
 
-L['residual_s'] = L['residual'].rolling(window = 60, center=True, min_periods=1).mean()
+L['residual_s'] = L['residual'].rolling(window = 72, center=True, min_periods=1).mean()#Use 12 hour rolling window
 
 start_date = datetime.datetime(1996,1,1,0,0) #Starting date
 end_date = datetime.datetime(1998,1,1,0,0) #End date
@@ -102,7 +118,7 @@ end_date = datetime.datetime(1998,1,1,0,0) #End date
 #indi = T.loc[start_date]
 indi = np.where(T.time > start_date)[0][0]
 indf = np.where(T.time <= end_date)[0][-1]
-nt = 3 # This can be used to reduce temporal resolution (see following lines)
+nt = 6 # This can be used to reduce temporal resolution (see following lines)
 
 L = L[indi:indf:nt]
 T = T[indi:indf:nt]
@@ -127,13 +143,16 @@ sc_fit = scaler.fit(values[:n_train_periods,:])
 scaled = scaler.transform(values)
 
 # frame as supervised learning
-n_steps_in = 144  #specify the number of the previous time steps to use for the prediction = 1 in this case
+n_steps_in = 48 #specify the number of the previous time steps to use for the prediction = 1 in this case
 n_steps_out = 1 #specify the number of time steps to predict = 1 in this case because we are predicting only 1 time step
 n_features = T.shape[1]-1 #number of features (variables) used to predict
 
 # frame as supervised learning
 reframed = series_to_supervised(scaled, n_steps_in, n_steps_out, n_features)
 reframed.shape
+
+# save scaler
+dump(scaler, open('../models/scaler.pkl', 'wb'))
 
 # %%
 # split into train and test sets
@@ -159,9 +178,9 @@ print(train_X.shape, train_y.shape, test_X.shape, test_y.shape)
 #%%
 # design network
 model = Sequential()
-#model.add(LSTM(72, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-model.add(LSTM(72, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
-model.add(LSTM(28, input_shape=(train_X.shape[1], train_X.shape[2])))
+model.add(LSTM(72, activation='relu', input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(72, return_sequences=True, input_shape=(train_X.shape[1], train_X.shape[2]))) #=(n_steps_in,n_features)
+#model.add(LSTM(28, input_shape=(train_X.shape[1], train_X.shape[2])))
 model.add(Dense(1))
 
 Adam(lr=0.0005)
@@ -174,34 +193,11 @@ history = model.fit(train_X, train_y, epochs=120, batch_size=32, validation_data
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
-pyplot.savefig("./models/loss.png", dpi=150)
+pyplot.savefig("../models/loss.png", dpi=150)
 pyplot.close()
 # %% Save model 
 
-model.save('./models/')
-#%% Find optimal epoch
-
-#val_mse_per_epoch = history.history['val_mse']
-#best_epoch = val_mse_per_epoch.index(min(val_mse_per_epoch)) + 1
-#print('Best epoch: %d' % (best_epoch,))
-
-
-# Retrain the model
-#model2 = tuner.hypermodel.build(best_hps)
-#history_b = model2.fit(train_X, train_y, epochs=best_epoch, validation_data=(test_X, test_y))
-
-# plot history
-pyplot.plot(history.history['loss'], label='train')
-pyplot.plot(history.history['val_loss'], label='test')
-pyplot.legend()
-pyplot.savefig("./models/loss.png", dpi=150)
-pyplot.close()
-
-# %% Save model 
-
-#best_model = tuner.get_best_models(num_models=1)[0]
-#model2.save('./models/')
-
+model.save('../models/')
 
 # %% Make a prediction
 yhat = model.predict(test_X)
@@ -219,7 +215,9 @@ inv_y = scaler.inverse_transform(inv_y[:,-(n_features+1):])
 inv_y = inv_y[:,-1]
 # calculate RMSE
 rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
+corr, _ = pearsonr(inv_y, inv_yhat)
 print('Test RMSE: %.3f' % rmse)
+print('Test corr: %.3f' % corr)
 print('Test std: %.3f' % inv_y.std())
 
 
@@ -229,35 +227,37 @@ print('Test std: %.3f' % inv_y.std())
 t = T['time']-T['time'][indi]
 
 pyplot.plot(inv_y, inv_yhat,'o')
+pyplot.plot([-100, 150],[-100, 150],'r')
 pyplot.xlabel("data")
 pyplot.ylabel("prediction")
 pyplot.grid()
 pyplot.axis([500,900,500,900])
 pyplot.axis("equal")
-pyplot.savefig('./models/comp1.png', dpi=150)
+pyplot.savefig('../models/comp1.png', dpi=150)
 pyplot.close()
 
 pyplot.plot(t[0:inv_y.size],inv_y,'r',label="data")
 pyplot.plot(t[0:inv_y.size],inv_yhat,'b:',label="prediction")
 pyplot.legend()
-pyplot.savefig('./models/comp2.png', dpi=150)
+pyplot.savefig('../models/comp2.png', dpi=150)
 pyplot.close()
 
 pyplot.plot(t[0:600],inv_y[0:600],'r',label="data")
 pyplot.plot(t[0:600],inv_yhat[0:600],'b:',label="prediction")
 pyplot.legend()
-pyplot.savefig('./models/comp3.png', dpi=150)
+pyplot.savefig('../models/comp3.png', dpi=150)
 pyplot.close()
 
 # %% Comparison ffts
-freq = np.fft.fftfreq(inv_y.size, d=t[indi+nt])[0:int(inv_y.size/4)]
 
-fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
-#fft_y = fft_y[0:int(inv_y.size/2)]
-fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
+# freq = np.fft.fftfreq(inv_y.size, d=t[indi+nt])[0:int(inv_y.size/4)]
 
-pyplot.plot(freq,fft_yhat)
-pyplot.plot(freq,fft_y)
-pyplot.yscale('log')
-pyplot.savefig('./models/spectrum.png', dpi=150)
-pyplot.close()
+# fft_y = np.abs(np.fft.fft(inv_y))[0:int(inv_y.size/4)]
+# #fft_y = fft_y[0:int(inv_y.size/2)]
+# fft_yhat = np.abs(np.fft.fft(inv_yhat))[0:int(inv_yhat.size/4)]
+
+# pyplot.plot(freq,fft_yhat)
+# pyplot.plot(freq,fft_y)
+# pyplot.yscale('log')
+# pyplot.savefig('../models/spectrum.png', dpi=150)
+# pyplot.close()
